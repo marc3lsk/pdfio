@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDFio</title>
+  <script>
+    // apply theme before first paint (no flash)
+    try {
+      const t = localStorage.getItem("theme") || "auto";
+      if (t !== "auto") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar" data-tauri-drag-region>
+      <div id="tabs" role="tablist"></div>
+      <button id="btn-newtab" class="icon" title="Otvoriť (Ctrl+O)">＋</button>
+      <div class="drag" data-tauri-drag-region></div>
+      <div id="toolbar">
+        <div class="group">
+          <button id="btn-undo" class="icon" title="Späť (Ctrl+Z)" disabled><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5L2.5 6.5l3 3"/><path d="M2.5 6.5h6.5a3.5 3.5 0 0 1 0 7H6"/></svg></button>
+          <button id="btn-redo" class="icon" title="Znova (Ctrl+Y)" disabled><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 3.5l3 3-3 3"/><path d="M13.5 6.5H7a3.5 3.5 0 0 0 0 7h3"/></svg></button>
+        </div>
+        <div class="group">
+          <button id="btn-save" class="icon" title="Uložiť (Ctrl+S)" disabled><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 2.5h7l2 2v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z"/><path d="M5 2.5v3h5v-3M5 13.5v-4h6v4"/></svg></button>
+          <button id="btn-saveas" class="icon" title="Uložiť ako… (Ctrl+Shift+S)" disabled><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5H3.5a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h7l2 2V7"/><path d="M5 2.5v3h5v-3M12 9.5v4M10 11.5h4"/></svg></button>
+        </div>
+        <div class="group">
+          <button id="btn-zoomout" class="icon" title="Oddialiť (Ctrl+-)">−</button>
+          <select id="zoom" title="Zoom">
+            <option value="auto">Auto</option>
+            <option value="page-fit">Celá strana</option>
+            <option value="page-width">Na šírku</option>
+            <option value="0.5">50 %</option><option value="0.75">75 %</option>
+            <option value="1">100 %</option><option value="1.25">125 %</option>
+            <option value="1.5">150 %</option><option value="2">200 %</option>
+            <option value="3">300 %</option><option value="4">400 %</option>
+          </select>
+          <button id="btn-zoomin" class="icon" title="Pritiahnuť (Ctrl++)">＋</button>
+        </div>
+        <div class="group">
+          <button id="btn-prev" class="icon" title="Predošlá strana">‹</button>
+          <input id="page" type="number" min="1" value="1" />
+          <span id="pages">/ 0</span>
+          <button id="btn-next" class="icon" title="Ďalšia strana">›</button>
+          <button id="btn-rotate" class="icon" title="Otočiť (R)">⟳</button>
+        </div>
+        <div class="group">
+          <button id="btn-find" class="icon" title="Hľadať (Ctrl+F)"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2l3.3 3.3"/></svg></button>
+          <button id="btn-forms" class="icon" title="Formulárové polia"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M4.8 8h3.5"/></svg></button>
+        </div>
+        <div class="group">
+          <button id="btn-invert" class="icon" title="Tmavé strany"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/></svg></button>
+          <button id="btn-theme" class="icon" title="Téma: auto / svetlá / tmavá"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 9.6A5.6 5.6 0 0 1 6.4 3a5.6 5.6 0 1 0 6.6 6.6z"/></svg></button>
+        </div>
+      </div>
+      <div id="winctl">
+        <button id="win-min" title="Minimalizovať"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8h9"/></svg></button>
+        <button id="win-max" title="Maximalizovať"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect id="max-r" x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
+        <button id="win-close" class="close" title="Zavrieť"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button>
+      </div>
+    </header>
+    <div id="findbar" hidden>
+      <input id="find-input" placeholder="Hľadať v dokumente…" />
+      <button id="find-prev" class="icon" title="Predošlý (Shift+Enter)">↑</button>
+      <button id="find-next" class="icon" title="Ďalší (Enter)">↓</button>
+      <label><input id="find-case" type="checkbox" /> Veľkosť písmen</label>
+      <label><input id="find-word" type="checkbox" /> Celé slová</label>
+      <span id="find-count"></span>
+      <button id="find-close" class="icon" title="Zavrieť (Esc)">✕</button>
+    </div>
+    <main id="main">
+      <div id="viewers"></div>
+      <div id="welcome">
+        <div class="logo">PDF<span>io</span></div>
+        <p>Otvor PDF cez <kbd>Ctrl</kbd>+<kbd>O</kbd> alebo ho pretiahni do okna.</p>
+      </div>
+      <aside id="side" hidden></aside>
+    </main>
+  </div>
+</body>
+</html>

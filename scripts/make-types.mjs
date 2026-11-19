@@ -1,0 +1,11 @@
+import { PDFDocument, rgb } from "pdf-lib";
+import { writeFileSync } from "node:fs";
+const doc = await PDFDocument.create();
+const page = doc.addPage([595, 842]);
+const form = doc.getForm();
+const o = { borderWidth: 1, borderColor: rgb(0, 0, 0), backgroundColor: rgb(0.9, 0.9, 0.6) };
+form.createButton("Btn").addToPage("Push me", page, { x: 60, y: 700, width: 120, height: 30, ...o });
+const l = form.createOptionList("Lst"); l.addOptions(["a", "b", "c"]); l.addToPage(page, { x: 60, y: 600, width: 120, height: 60, ...o });
+form.createCheckBox("Chk").addToPage(page, { x: 60, y: 540, width: 20, height: 20, ...o });
+form.createTextField("Txt").addToPage(page, { x: 60, y: 480, width: 160, height: 24, ...o });
+writeFileSync("types.pdf", await doc.save());
