@@ -145,7 +145,8 @@ body.maxed #max-r { x: 5.5px; y: 2.5px; width: 8px; height: 8px; }
 .viewer-host { position: absolute; inset: 0; }
 .viewer-host.inactive { visibility: hidden; pointer-events: none; }
 .pdfcontainer { position: absolute; inset: 0; overflow: auto; user-select: text; }
-.pdfViewer .page { box-shadow: var(--shadow); border: none; margin: 8px auto; }
+/* pdf.js sizes the canvas to the page's content box: no border-box (it would squeeze the canvas and blur the text), no border */
+.viewer-host .pdfViewer .page { box-sizing: content-box; box-shadow: var(--shadow); border: 0; margin: 0 auto 8px; }
 .viewer-host.syncing .annotationLayer { visibility: hidden; }
 .invert-pages .pdfViewer .canvasWrapper canvas { filter: invert(0.92) hue-rotate(180deg); }
 .invert-pages .pdfViewer .page { background-color: #1b1b1b; }

@@ -131,7 +131,7 @@ function createTab(file: OpenedFile): Tab {
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
   const findController = new PDFFindController({ linkService, eventBus });
-  const viewer = new PDFViewer({ container, viewer: viewerEl, eventBus, linkService, findController });
+  const viewer = new PDFViewer({ container, viewer: viewerEl, eventBus, linkService, findController, removePageBorders: true });
   linkService.setViewer(viewer);
 
   const tab: Tab = {
