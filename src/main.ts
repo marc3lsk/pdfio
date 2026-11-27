@@ -4,6 +4,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { EventBus, PDFFindController, PDFLinkService, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { FIELD_TYPE_LABEL, FormEditor, type FieldInfo, type FieldPatch, type FieldType, type Rect } from "./forms";
+import { analyzeSignatures, fmtDate, overallStatus, type SigInfo, type SigStatus } from "./signatures";
 import {
   baseName,
   confirmDialog,
@@ -59,6 +60,10 @@ interface Tab {
   clean: Uint8Array;
   /** user typed into a form widget since values were last folded into tab.bytes */
   touched: boolean;
+  // digital signatures (null = not analyzed yet)
+  sigs: SigInfo[] | null;
+  sigSource: Uint8Array | null;
+  selectedSig: number | null;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -66,6 +71,8 @@ const tabs: Tab[] = [];
 let active: Tab | null = null;
 let nextId = 1;
 let sideOpen = false;
+/** the side panel shows signatures instead of form fields */
+let sigOpen = false;
 
 const PDF_ASSETS = {
   cMapUrl: "/pdfjs/cmaps/",
@@ -161,13 +168,19 @@ function createTab(file: OpenedFile): Tab {
     redo: [],
     clean: file.bytes,
     touched: false,
+    sigs: null,
+    sigSource: null,
+    selectedSig: null,
   };
 
   eventBus.on("pagechanging", (e: { pageNumber: number }) => {
     if (tab === active) ($("page") as HTMLInputElement).value = String(e.pageNumber);
   });
   eventBus.on("scalechanging", () => tab === active && syncZoom());
-  eventBus.on("pagerendered", (e: { pageNumber: number }) => renderOverlay(tab, e.pageNumber));
+  eventBus.on("pagerendered", (e: { pageNumber: number }) => {
+    renderOverlay(tab, e.pageNumber);
+    renderSigOverlay(tab, e.pageNumber);
+  });
   eventBus.on("updatefindmatchescount", (e: { matchesCount: { current: number; total: number } }) => {
     if (tab === active) showFindCount(e.matchesCount);
   });
@@ -252,6 +265,7 @@ async function loadDocument(tab: Tab, bytes: Uint8Array, restore?: Restore) {
   }
   void old?.destroy();
   if (tab === active) syncToolbar();
+  refreshSignatures(tab, bytes);
 
   doc
     .getFieldObjects()
@@ -271,6 +285,8 @@ function activate(tab: Tab) {
   syncToolbar();
   syncZoom();
   ($("find-count") as HTMLElement).textContent = "";
+  renderSigBar();
+  if (sigOpen) renderSide();
   if (sideOpen) void ensureFields(tab).then(() => renderSide());
   tab.container.focus({ preventScroll: true });
 }
@@ -292,6 +308,7 @@ async function closeTab(tab: Tab, force = false) {
     $("welcome").classList.remove("gone");
     syncToolbar();
     renderSide();
+    renderSigBar();
   }
   renderTabs();
 }
@@ -770,9 +787,11 @@ function highlightField(tab: Tab | null, name: string | null) {
 
 function renderSide() {
   const side = $("side");
-  side.hidden = !sideOpen;
+  side.hidden = !sideOpen && !sigOpen;
   $("btn-forms").classList.toggle("active", sideOpen);
+  $("sigbar").querySelector("[data-act=sigpanel]")?.classList.toggle("active", sigOpen);
   const tab = active;
+  if (sigOpen && tab) return renderSigPanel(tab);
   if (!sideOpen || !tab) {
     side.replaceChildren();
     return;
@@ -984,6 +1003,13 @@ function onSideClick(e: MouseEvent) {
   const tab = active;
   if (!tab) return;
   const t = e.target as HTMLElement;
+  if (sigOpen) {
+    if (t.closest("[data-act=sigclose]")) return void toggleSigPanel(false);
+    if (t.closest("details")) return;
+    const card = t.closest<HTMLElement>(".sig");
+    if (card) selectSig(tab, Number(card.dataset.sig), true);
+    return;
+  }
   const row = t.closest<HTMLElement>(".frow");
   if (row) return selectField(tab, row.dataset.name!, true);
 
@@ -1042,10 +1068,171 @@ function onSideClick(e: MouseEvent) {
 
 async function toggleSide() {
   sideOpen = !sideOpen;
+  sigOpen = false;
   const t = active;
   if (sideOpen && t) await ensureFields(t);
   renderSide();
   for (const x of tabs) renderAllOverlays(x);
+}
+
+// ---------------------------------------------------------------- digital signatures
+
+const SIG_ICON: Record<SigStatus, string> = { valid: "✓", warn: "!", invalid: "✕", unknown: "?", pending: "…" };
+
+/** (Re)verify signatures for the bytes now shown in the tab; stale results are dropped. */
+function refreshSignatures(tab: Tab, bytes: Uint8Array) {
+  if (tab.sigSource === bytes) return;
+  tab.sigSource = bytes;
+  void analyzeSignatures(bytes, (sigs) => {
+    if (tab.sigSource !== bytes) return;
+    tab.sigs = sigs;
+    if (tab.selectedSig !== null && tab.selectedSig >= sigs.length) tab.selectedSig = null;
+    if (tab !== active) return;
+    renderSigBar();
+    if (sigOpen) renderSide();
+    for (let i = 1; i <= tab.viewer.pagesCount; i++) renderSigOverlay(tab, i);
+  }).catch((e) => {
+    console.error(e);
+    if (tab.sigSource === bytes) tab.sigs = [];
+  });
+}
+
+function overallText(sigs: SigInfo[]): string {
+  const n = sigs.length;
+  const what = `${n} ${n < 5 ? "podpisy" : "podpisov"}`;
+  if (n === 1) return `${sigs[0].summary}.`;
+  switch (overallStatus(sigs)) {
+    case "valid":
+      return `Dokument obsahuje ${what}, všetky sú platné.`;
+    case "pending":
+      return `Dokument obsahuje ${what}, overujem certifikáty…`;
+    case "invalid":
+      return `Dokument obsahuje ${what}, aspoň jeden je NEPLATNÝ.`;
+    case "unknown":
+      return `Dokument obsahuje ${what}, platnosť niektorých sa nepodarilo overiť.`;
+    default:
+      return `Dokument obsahuje ${what}, niektoré majú výhrady.`;
+  }
+}
+
+function renderSigBar() {
+  const bar = $("sigbar");
+  const sigs = active?.sigs;
+  if (!sigs?.length) {
+    bar.hidden = true;
+    return;
+  }
+  const st = overallStatus(sigs);
+  bar.hidden = false;
+  bar.className = `st-${st}`;
+  bar.innerHTML = `<span class="sig-ic st-${st}">${SIG_ICON[st]}</span><span class="txt">${esc(overallText(sigs))}</span><button data-act="sigpanel" class="${sigOpen ? "active" : ""}">Panel podpisov</button>`;
+}
+
+function toggleSigPanel(open = !sigOpen) {
+  sigOpen = open;
+  if (open && sideOpen) {
+    sideOpen = false;
+    for (const t of tabs) renderAllOverlays(t);
+  }
+  renderSide();
+  renderSigBar();
+}
+
+function selectSig(tab: Tab, i: number, scroll: boolean) {
+  tab.selectedSig = i;
+  if (!sigOpen) toggleSigPanel(true);
+  else renderSide();
+  for (let p = 1; p <= tab.viewer.pagesCount; p++) renderSigOverlay(tab, p);
+  const w = tab.sigs?.[i]?.widget;
+  if (scroll && w) {
+    tab.viewer.scrollPageIntoView({
+      pageNumber: w.page + 1,
+      destArray: [null, { name: "XYZ" }, Math.max(0, w.rect.x - 30), w.rect.y + w.rect.height + 80, null],
+    });
+  }
+}
+
+function highlightSig(tab: Tab | null, idx: string | null) {
+  if (!tab) return;
+  tab.container.querySelectorAll(".sigmark.hl").forEach((b) => b.classList.remove("hl"));
+  if (idx === null) return;
+  tab.container.querySelectorAll<HTMLElement>(`.sigmark[data-sig="${idx}"]`).forEach((b) => b.classList.add("hl"));
+}
+
+/** Status badge on each visible signature widget (always shown, independent of the side panel). */
+function renderSigOverlay(tab: Tab, pageNumber: number) {
+  const pv = tab.viewer.getPageView(pageNumber - 1);
+  const div = pv?.div as HTMLDivElement | undefined;
+  if (!pv || !div) return;
+  div.querySelector(":scope > .sig-overlay")?.remove();
+  const sigs = tab.sigs?.filter((s) => s.widget?.page === pageNumber - 1 && s.widget.rect.width > 1 && s.widget.rect.height > 1);
+  if (!sigs?.length) return;
+  const vp = pv.viewport.clone({ scale: 1 });
+  const px = (n: number) => `calc(var(--total-scale-factor) * ${n}px)`;
+  const ov = document.createElement("div");
+  ov.className = "sig-overlay";
+  for (const s of sigs) {
+    const r = s.widget!.rect;
+    const [x1, y1, x2, y2] = vp.convertToViewportRectangle([r.x, r.y, r.x + r.width, r.y + r.height]);
+    const m = document.createElement("div");
+    m.className = `sigmark st-${s.status}` + (tab.selectedSig === s.index ? " sel" : "");
+    m.dataset.sig = String(s.index);
+    Object.assign(m.style, { left: px(Math.min(x1, x2)), top: px(Math.min(y1, y2)), width: px(Math.abs(x2 - x1)), height: px(Math.abs(y2 - y1)) });
+    const ic = document.createElement("span");
+    ic.className = `sig-ic st-${s.status}`;
+    ic.textContent = SIG_ICON[s.status];
+    ic.title = [s.summary, s.signer?.name, "Klik = podrobnosti"].filter(Boolean).join("\n");
+    ic.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectSig(tab, s.index, false);
+    });
+    m.append(ic);
+    ov.append(m);
+  }
+  div.append(ov);
+}
+
+function sigCardHtml(tab: Tab, s: SigInfo): string {
+  const row = (label: string, v: string) => (v ? `<div class="row"><label>${label}</label><div>${v}</div></div>` : "");
+  const timeSrc = { timestamp: "podľa časovej pečiatky", "signed-attr": "podľa hodín zariadenia podpisovateľa", dict: "podľa hodín zariadenia podpisovateľa" } as const;
+  const c = s.signer;
+  const title = s.docTimestamp ? `Časová pečiatka${c ? ` – ${c.name}` : ""}` : c?.name || s.name || "Neznámy podpisovateľ";
+  const checks = s.checks.map((k) => `<li class="${k.ok === true ? "ok" : k.ok === false ? "bad" : "info"}">${esc(k.text)}</li>`).join("");
+  return `<div class="sig${tab.selectedSig === s.index ? " sel" : ""}" data-sig="${s.index}"${s.fieldName ? ` data-name="${esc(s.fieldName)}"` : ""}>
+    <div class="sig-head"><span class="sig-ic st-${s.status}">${SIG_ICON[s.status]}</span><div><div class="who">${esc(title)}</div><div class="sum st-${s.status}">${esc(s.summary)}</div></div></div>
+    ${row("Podpísané", s.time ? `${esc(fmtDate(s.time))}${s.timeSource ? `<div class="sub">${timeSrc[s.timeSource]}</div>` : ""}` : "")}
+    ${row("Organizácia", esc(c?.org ?? ""))}
+    ${row("Dôvod", esc(s.reason))}
+    ${row("Miesto", esc(s.location))}
+    ${row("Kontakt", esc(s.contact || c?.email || ""))}
+    ${row("Pole", s.fieldName ? `${esc(s.fieldName)}${s.widget ? ` <span class="badge">str. ${s.widget.page + 1}</span>` : ""}` : "")}
+    <ul class="checks">${checks}</ul>
+    <details><summary>Podrobnosti</summary>
+      ${row("Podpisovateľ", esc(c?.name ?? "–"))}
+      ${row("Vydavateľ", esc(c?.issuer ?? ""))}
+      ${row("Platnosť cert.", c ? `${esc(fmtDate(c.notBefore))} – ${esc(fmtDate(c.notAfter))}` : "")}
+      ${row("Sériové č.", c ? `<span class="mono">${esc(c.serial)}</span>` : "")}
+      ${row("Reťazec", s.chain.length ? s.chain.map((x) => esc(x)).join("<br>↳ ") : "")}
+      ${row("Časová pečiatka", esc(s.tsa ?? ""))}
+      ${row("Formát", esc(s.subFilter))}
+      ${row("Hash", esc(s.digestAlg))}
+      ${row("Revízia", `${s.revision} z ${tab.sigs?.length ?? 0}${s.coversWholeFile ? " (pokrýva celý súbor)" : ""}`)}
+    </details>
+  </div>`;
+}
+
+function renderSigPanel(tab: Tab) {
+  const sigs = tab.sigs;
+  $("side").innerHTML = `
+    <div class="side-head"><h3>Podpisy${sigs ? ` (${sigs.length})` : ""}</h3><button class="icon" data-act="sigclose" title="Zavrieť">✕</button></div>
+    <div class="sigs">${
+      !sigs ? '<div class="empty">Overujem…</div>' : sigs.length ? sigs.map((s) => sigCardHtml(tab, s)).join("") : '<div class="empty">Dokument nie je digitálne podpísaný.</div>'
+    }</div>
+    ${
+      sigs?.length
+        ? '<div class="sig-note">Integrita sa overuje kryptograficky, dôveryhodnosť certifikátu voči úložisku certifikátov Windows (vrátane kontroly zrušenia, ak je dostupná).</div>'
+        : ""
+    }`;
 }
 
 // ---------------------------------------------------------------- wiring
@@ -1088,6 +1275,9 @@ function bindUi() {
     }
   };
   $("btn-forms").onclick = () => void toggleSide();
+  $("sigbar").onclick = (e) => {
+    if ((e.target as HTMLElement).closest("[data-act=sigpanel]")) toggleSigPanel();
+  };
 
   $("btn-theme").onclick = () => applyTheme(({ auto: "light", light: "dark", dark: "auto" } as const)[getTheme()]);
   const invert = () => {
@@ -1112,10 +1302,14 @@ function bindUi() {
   $("side").addEventListener("click", onSideClick);
   // hovering a field in the list highlights it in the document
   $("side").addEventListener("mouseover", (e) => {
-    const row = (e.target as HTMLElement).closest<HTMLElement>(".frow");
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".frow, .sig");
     highlightField(active, row?.dataset.name ?? null);
+    highlightSig(active, row?.dataset.sig ?? null);
   });
-  $("side").addEventListener("mouseleave", () => highlightField(active, null));
+  $("side").addEventListener("mouseleave", () => {
+    highlightField(active, null);
+    highlightSig(active, null);
+  });
 
   new ResizeObserver(() => {
     for (const t of tabs) {

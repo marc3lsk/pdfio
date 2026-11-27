@@ -219,6 +219,61 @@ body.maxed #max-r { x: 5.5px; y: 2.5px; width: 8px; height: 8px; }
 .fbox.sel .rz { display: block; }
 .draw-rect { position: absolute; border: 1.5px dashed var(--accent); background: var(--accent-soft); pointer-events: none; }
 
+/* digital signatures */
+:root { --ok: #15803d; --ok-soft: rgba(21, 128, 61, 0.12); --warn: #b45309; --warn-soft: rgba(245, 158, 11, 0.16); --bad: #dc2626; --bad-soft: rgba(220, 38, 38, 0.12); --on-status: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ok: #4ade80; --ok-soft: rgba(74, 222, 128, 0.14); --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, 0.14); --bad: #f87171; --bad-soft: rgba(248, 113, 113, 0.14); --on-status: #111; }
+}
+:root[data-theme="dark"] { --ok: #4ade80; --ok-soft: rgba(74, 222, 128, 0.14); --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, 0.14); --bad: #f87171; --bad-soft: rgba(248, 113, 113, 0.14); --on-status: #111; }
+
+#sigbar { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); background: var(--panel-2); flex: none; }
+#sigbar[hidden] { display: none; }
+#sigbar .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sigbar button { border-color: var(--border); }
+#sigbar.st-valid { background: var(--ok-soft); }
+#sigbar.st-warn, #sigbar.st-unknown { background: var(--warn-soft); }
+#sigbar.st-invalid { background: var(--bad-soft); }
+
+.sig-ic {
+  display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; line-height: 1; color: var(--on-status); background: var(--muted);
+}
+.sig-ic.st-valid { background: var(--ok); }
+.sig-ic.st-warn, .sig-ic.st-unknown { background: var(--warn); }
+.sig-ic.st-invalid { background: var(--bad); }
+
+.sigs { flex: 1; overflow: auto; min-height: 120px; }
+.sig { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.sig:hover { background: var(--hover); }
+.sig.sel { background: var(--accent-soft); }
+.sig-head { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 6px; }
+.sig-head .sig-ic { margin-top: 1px; }
+.sig .who { font-weight: 600; overflow-wrap: anywhere; }
+.sig .sum { font-size: 12px; }
+.sig .sum.st-valid { color: var(--ok); }
+.sig .sum.st-warn, .sig .sum.st-unknown { color: var(--warn); }
+.sig .sum.st-invalid { color: var(--bad); font-weight: 600; }
+.sig .row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; margin: 3px 0; font-size: 12px; }
+.sig .row > label { color: var(--muted); }
+.sig .row > div { overflow-wrap: anywhere; user-select: text; }
+.sig .sub { color: var(--muted); font-size: 11px; }
+.sig .mono { font-family: Consolas, monospace; font-size: 11px; }
+.sig .checks { list-style: none; margin: 6px 0; padding: 0; font-size: 12px; }
+.sig .checks li { position: relative; padding-left: 18px; margin: 2px 0; }
+.sig .checks li::before { position: absolute; left: 2px; font-weight: 700; }
+.sig .checks li.ok::before { content: "✓"; color: var(--ok); }
+.sig .checks li.bad::before { content: "✕"; color: var(--bad); }
+.sig .checks li.info::before { content: "i"; color: var(--muted); left: 5px; }
+.sig details summary { cursor: pointer; color: var(--accent); font-size: 12px; margin: 4px 0; }
+.sig-note { padding: 8px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+
+/* signature status on the page (lives inside each .page) */
+.sig-overlay { position: absolute; inset: 0; z-index: 21; pointer-events: none; }
+.sigmark { position: absolute; border-radius: 2px; }
+.sigmark .sig-ic { position: absolute; left: -9px; top: -9px; pointer-events: auto; cursor: pointer; box-shadow: 0 0 0 2px var(--panel); }
+.sigmark.hl, .sigmark.sel { box-shadow: 0 0 0 2px var(--accent); }
+.sigmark.hl { background: var(--accent-soft); }
+
 /* toast */
 #toast {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);

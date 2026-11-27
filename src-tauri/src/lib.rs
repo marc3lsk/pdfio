@@ -1,3 +1,5 @@
+mod sigtrust;
+
 use std::sync::Mutex;
 use tauri::{
     ipc::{InvokeBody, Request, Response},
@@ -46,6 +48,14 @@ fn write_file(request: Request<'_>) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| format!("{path}: {e}"))
 }
 
+/// Validate a signer certificate chain against the Windows trust store (may go online for revocation).
+#[tauri::command]
+async fn verify_cert_chain(req: sigtrust::ChainRequest) -> Result<sigtrust::ChainResult, String> {
+    tauri::async_runtime::spawn_blocking(move || sigtrust::verify_chain(req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -63,7 +73,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             take_initial_files,
             read_file,
-            write_file
+            write_file,
+            verify_cert_chain
         ])
         .run(tauri::generate_context!())
         .expect("error while running PDFio");

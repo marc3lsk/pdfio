@@ -130,3 +130,19 @@ export async function wireNative(opts: {
   const initial = await invoke<string[]>("take_initial_files");
   if (initial.length) opts.onFiles(initial);
 }
+
+export interface ChainResult {
+  trusted: boolean;
+  /** CERT_TRUST_STATUS.dwErrorStatus (CERT_TRUST_* flags) */
+  error_status: number;
+  /** display names: certificate itself -> root */
+  chain: string[];
+}
+
+/** Validate a certificate chain against the Windows trust store. Null outside the desktop app. */
+export async function verifyCertChain(certs: Uint8Array[], timeMs: number | null, revocation: boolean): Promise<ChainResult | null> {
+  if (!isTauri) return null;
+  return invoke<ChainResult>("verify_cert_chain", {
+    req: { certs: certs.map((c) => Array.from(c)), time_ms: timeMs, revocation },
+  });
+}
